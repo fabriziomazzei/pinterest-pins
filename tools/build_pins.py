@@ -33,7 +33,7 @@ def build(spec):
         for ln in wrap(d, p['headline'], H, 860):
             d.text((500, y), ln, font=H, fill=INK, anchor='mt'); y += 86
         src = Image.open(os.path.join(spec['images_dir'], p['img'] + '.png')).convert('RGB')
-        crop = src.crop((600, 150, 2400, 2150)) if p['img'] == '01' else src.crop((620, p.get('top', 600), 2380, 2150))
+        crop = src.crop((600, p.get('top', 150), 2400, 2150)) if p['img'] == '01' else src.crop((620, p.get('top', 600), 2380, 2150))
         top, bottom = y + 20, 1500 - 210
         h = bottom - top; w = int(crop.width * h / crop.height)
         if w > 940: w = 940; h = int(crop.height * w / crop.width)
