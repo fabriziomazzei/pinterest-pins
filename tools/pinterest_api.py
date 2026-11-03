@@ -22,11 +22,17 @@ Comandi:
   auth-url                       link di autorizzazione OAuth da aprire
   exchange CODE                  scambia il code del callback con i token
   refresh                        rinnova il token produzione
+  demo                           video per l'accesso Standard, tutto in uno:
+                                 apre OAuth, chiede l'indirizzo della pagina di
+                                 ritorno, scambia il code, crea bacheca e pin
 
 Esempio collaudo:  python tools/pinterest_api.py --sandbox create-board "Sandbox Test"
                    python tools/pinterest_api.py --sandbox pin-csv csv/pin-nuovi-9.csv --only 1 --board-id ID
 """
 import argparse
+import getpass
+import time
+import webbrowser
 import base64
 import csv
 import json
@@ -45,9 +51,50 @@ SCOPES = "boards:read,boards:write,pins:read,pins:write,user_accounts:read"
 
 def env(name):
     val = os.environ.get(name)
+    if not val and name in ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET") and sys.stdin.isatty():
+        # Input nascosto: il valore non compare a schermo.
+        val = getpass.getpass(f"{name} (non viene mostrato): ").strip()
+        os.environ[name] = val
     if not val:
         sys.exit(f"Manca la variabile d'ambiente {name}")
     return val
+
+
+DEMO_PIN = {"title": "Excel formulas without memorizing syntax",
+            "description": "Describe what you need in plain English and let ChatGPT, Claude or Gemini write the Excel "
+                           "or Google Sheets formula. A 4-part brief, error fixes and 16 everyday formulas on a "
+                           "printable cheat sheet.",
+            "link": "https://www.etsy.com/listing/4608386910",
+            "alt_text": "Excel formulas without memorizing syntax",
+            "media_source": {"source_type": "image_url",
+                             "url": "https://raw.githubusercontent.com/fabriziomazzei/pinterest-pins/main/pin/pin-excel-1.png"}}
+
+
+def demo(token_file):
+    env("PINTEREST_APP_ID"), env("PINTEREST_APP_SECRET")
+    state = secrets.token_urlsafe(16)
+    url = "https://www.pinterest.com/oauth/?" + urllib.parse.urlencode(
+        {"client_id": env("PINTEREST_APP_ID"), "redirect_uri": REDIRECT_URI,
+         "response_type": "code", "scope": SCOPES, "state": state})
+    print("1. Collego FM Pin Publisher al tuo account Pinterest (OAuth). Apro il browser...")
+    webbrowser.open(url)
+    back = input("2. Dopo 'Consenti', incolla qui l'indirizzo della pagina 'Pinterest connected': ").strip()
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(back).query)
+    if q.get("state", [""])[0] != state or not q.get("code"):
+        sys.exit("Indirizzo non valido: rifai 'demo' e incolla l'indirizzo completo.")
+    print("3. Scambio il code con il token (il token non viene mostrato)...")
+    tok = oauth_token({"grant_type": "authorization_code", "code": q["code"][0], "redirect_uri": REDIRECT_URI})
+    save_tokens(tok, token_file)
+    token = tok["access_token"]
+    u = call(PROD, token, "GET", "/user_account")
+    print(f"4. Account collegato: {u.get('username')}")
+    name = "API Demo " + time.strftime("%Y-%m-%d %H%M")
+    b = call(PROD, token, "POST", "/boards", {"name": name, "privacy": "PUBLIC"})
+    print(f"5. Bacheca creata via API: {b['name']}")
+    pin = call(PROD, token, "POST", "/pins", dict(DEMO_PIN, board_id=b["id"]))
+    link = f"https://www.pinterest.com/pin/{pin['id']}/"
+    print(f"6. Pin creato via API: {DEMO_PIN['title']}\n   {link}")
+    webbrowser.open(link)
 
 
 def call(base, token, method, path, body=None):
@@ -107,6 +154,9 @@ def main():
     p.add_argument("--board-id", help="usa questa bacheca per tutti i pin")
     a = p.parse_args()
 
+    if a.cmd == "demo":
+        demo(a.token_file)
+        return
     if a.cmd == "auth-url":
         state = secrets.token_urlsafe(16)
         q = urllib.parse.urlencode({"client_id": env("PINTEREST_APP_ID"), "redirect_uri": REDIRECT_URI,
