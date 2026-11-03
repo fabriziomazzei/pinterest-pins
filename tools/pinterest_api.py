@@ -50,7 +50,7 @@ SCOPES = "boards:read,boards:write,pins:read,pins:write,user_accounts:read"
 
 
 def env(name):
-    val = os.environ.get(name)
+    val = (os.environ.get(name) or "").strip()
     if not val and name in ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET") and sys.stdin.isatty():
         # Input nascosto: il valore non compare a schermo.
         val = getpass.getpass(f"{name} (non viene mostrato): ").strip()
