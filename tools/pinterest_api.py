@@ -49,8 +49,15 @@ REDIRECT_URI = "https://www.fabriziomazzei.it/pinterest-callback"
 SCOPES = "boards:read,boards:write,pins:read,pins:write,user_accounts:read"
 
 
+FILES = {"PINTEREST_APP_SECRET": "app-secret.txt", "PINTEREST_SANDBOX_TOKEN": "sandbox-token.txt"}
+
+
 def env(name):
     val = (os.environ.get(name) or "").strip()
+    if not val and name in FILES and os.path.exists(FILES[name]):
+        # File locale nella cartella corrente: il valore non passa dallo schermo.
+        val = open(FILES[name], encoding="utf-8-sig").read().strip()
+        os.environ[name] = val
     if not val and name in ("PINTEREST_APP_ID", "PINTEREST_APP_SECRET") and sys.stdin.isatty():
         # Input nascosto: il valore non compare a schermo.
         val = getpass.getpass(f"{name} (non viene mostrato): ").strip()
@@ -88,15 +95,27 @@ def demo(token_file):
     token = tok["access_token"]
     u = call(PROD, token, "GET", "/user_account")
     print(f"4. Account collegato: {u.get('username')}")
-    # In Trial l'API di produzione non crea pin: bacheca e pin vanno in sandbox, stesso token OAuth.
+    # Produzione con il token OAuth: lettura e creazione bacheca funzionano anche in Trial.
+    boards = all_boards(PROD, token)
+    print(f"5. Bacheche lette via API: {len(boards)}")
     name = "API Demo " + time.strftime("%Y-%m-%d %H%M")
-    b = call(SANDBOX, token, "POST", "/boards", {"name": name, "privacy": "PUBLIC"})
-    print(f"5. Bacheca creata via API (sandbox, accesso Trial): {b['name']}")
-    pin = call(SANDBOX, token, "POST", "/pins", dict(DEMO_PIN, board_id=b["id"]))
-    print(f"6. Pin creato via API: id {pin['id']}")
-    p = call(SANDBOX, token, "GET", f"/pins/{pin['id']}")
+    b = call(PROD, token, "POST", "/boards", {"name": name, "privacy": "SECRET"})
+    print(f"6. Bacheca creata via API: {b['name']} (id {b['id']})")
+    # In Trial i pin si creano solo su api-sandbox, che accetta solo il token sandbox del portale.
+    sb = (os.environ.get("PINTEREST_SANDBOX_TOKEN") or "").strip()
+    if not sb and os.path.exists(FILES["PINTEREST_SANDBOX_TOKEN"]):
+        sb = env("PINTEREST_SANDBOX_TOKEN")
+    if not sb and sys.stdin.isatty():
+        sb = getpass.getpass("7. Token sandbox per creare il pin (non viene mostrato, Invio per saltare): ").strip()
+    if not sb:
+        print("Fine (pin saltato).")
+        return
+    sbb = call(SANDBOX, sb, "POST", "/boards", {"name": name, "privacy": "PUBLIC"})
+    pin = call(SANDBOX, sb, "POST", "/pins", dict(DEMO_PIN, board_id=sbb["id"]))
+    p = call(SANDBOX, sb, "GET", f"/pins/{pin['id']}")
+    print(f"8. Pin creato via API (sandbox, accesso Trial): id {pin['id']}")
+    print(f"   Titolo: {p.get('title')}\n   Link:   {p.get('link')}")
     img = ((p.get("media") or {}).get("images") or {}).get("1200x", {}).get("url", "")
-    print(f"   Titolo: {p.get('title')}\n   Link:   {p.get('link')}\n   Bacheca: {b['name']}")
     if img:
         print(f"   Immagine elaborata da Pinterest: {img}")
         webbrowser.open(img)
