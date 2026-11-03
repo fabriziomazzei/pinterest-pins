@@ -88,13 +88,18 @@ def demo(token_file):
     token = tok["access_token"]
     u = call(PROD, token, "GET", "/user_account")
     print(f"4. Account collegato: {u.get('username')}")
+    # In Trial l'API di produzione non crea pin: bacheca e pin vanno in sandbox, stesso token OAuth.
     name = "API Demo " + time.strftime("%Y-%m-%d %H%M")
-    b = call(PROD, token, "POST", "/boards", {"name": name, "privacy": "PUBLIC"})
-    print(f"5. Bacheca creata via API: {b['name']}")
-    pin = call(PROD, token, "POST", "/pins", dict(DEMO_PIN, board_id=b["id"]))
-    link = f"https://www.pinterest.com/pin/{pin['id']}/"
-    print(f"6. Pin creato via API: {DEMO_PIN['title']}\n   {link}")
-    webbrowser.open(link)
+    b = call(SANDBOX, token, "POST", "/boards", {"name": name, "privacy": "PUBLIC"})
+    print(f"5. Bacheca creata via API (sandbox, accesso Trial): {b['name']}")
+    pin = call(SANDBOX, token, "POST", "/pins", dict(DEMO_PIN, board_id=b["id"]))
+    print(f"6. Pin creato via API: id {pin['id']}")
+    p = call(SANDBOX, token, "GET", f"/pins/{pin['id']}")
+    img = ((p.get("media") or {}).get("images") or {}).get("1200x", {}).get("url", "")
+    print(f"   Titolo: {p.get('title')}\n   Link:   {p.get('link')}\n   Bacheca: {b['name']}")
+    if img:
+        print(f"   Immagine elaborata da Pinterest: {img}")
+        webbrowser.open(img)
 
 
 def call(base, token, method, path, body=None):
