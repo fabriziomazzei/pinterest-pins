@@ -13,15 +13,18 @@ Comandi:
   whoami                         account collegato al token
   boards                         elenco bacheche (id e nome)
   create-board NOME              crea una bacheca
-  pin-csv FILE.csv [--only N] [--dry-run]
+  pin-csv FILE.csv [--only N] [--dry-run] [--board-id ID]
                                  crea i pin del CSV (formato bulk Pinterest).
+                                 --board-id forza una bacheca (utile in sandbox,
+                                 dove l'elenco bacheche torna vuoto).
                                  La colonna "Publish date" viene ignorata:
                                  l'API pubblica subito.
   auth-url                       link di autorizzazione OAuth da aprire
   exchange CODE                  scambia il code del callback con i token
   refresh                        rinnova il token produzione
 
-Esempio collaudo:  python tools/pinterest_api.py --sandbox pin-csv csv/pin-nuovi-9.csv --only 1
+Esempio collaudo:  python tools/pinterest_api.py --sandbox create-board "Sandbox Test"
+                   python tools/pinterest_api.py --sandbox pin-csv csv/pin-nuovi-9.csv --only 1 --board-id ID
 """
 import argparse
 import base64
@@ -101,6 +104,7 @@ def main():
     p.add_argument("arg", nargs="?")
     p.add_argument("--only", type=int, help="crea solo i primi N pin")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--board-id", help="usa questa bacheca per tutti i pin")
     a = p.parse_args()
 
     if a.cmd == "auth-url":
@@ -145,10 +149,12 @@ def main():
         print(f"Creata: {b['id']}\t{b['name']}")
     elif a.cmd == "pin-csv":
         rows = list(csv.DictReader(open(a.arg, encoding="utf-8")))[: a.only or None]
-        boards = {b["name"]: b["id"] for b in all_boards(base, token)}
+        boards = {} if a.board_id else {b["name"]: b["id"] for b in all_boards(base, token)}
         for r in rows:
             name = r["Pinterest board"]
-            if name not in boards:
+            if a.board_id:
+                boards[name] = a.board_id
+            elif name not in boards:
                 if a.dry_run:
                     boards[name] = "(da creare)"
                 else:
