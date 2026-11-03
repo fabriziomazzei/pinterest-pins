@@ -95,13 +95,12 @@ def demo(token_file):
     token = tok["access_token"]
     u = call(PROD, token, "GET", "/user_account")
     print(f"4. Account collegato: {u.get('username')}")
-    # Produzione con il token OAuth: in Trial funzionano lettura e bacheca PUBLIC (SECRET = 403, ma
-    # le entita create in Trial restano comunque visibili solo al proprietario).
+    # Produzione con il token OAuth: in Trial solo letture affidabili (le scritture danno 403 code 29).
     boards = all_boards(PROD, token)
     print(f"5. Bacheche lette via API: {len(boards)}")
+    pins = call(PROD, token, "GET", "/pins?page_size=5").get("items", [])
+    print(f"6. Pin letti via API: {len(pins)} (ultimi)")
     name = "API Demo " + time.strftime("%Y-%m-%d %H%M")
-    b = call(PROD, token, "POST", "/boards", {"name": name, "privacy": "PUBLIC"})
-    print(f"6. Bacheca creata via API: {b['name']} (id {b['id']})")
     # In Trial i pin si creano solo su api-sandbox, che accetta solo il token sandbox del portale.
     sb = (os.environ.get("PINTEREST_SANDBOX_TOKEN") or "").strip()
     if not sb and os.path.exists(FILES["PINTEREST_SANDBOX_TOKEN"]):
