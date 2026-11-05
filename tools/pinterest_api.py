@@ -19,6 +19,10 @@ Comandi:
                                  dove l'elenco bacheche torna vuoto).
                                  La colonna "Publish date" viene ignorata:
                                  l'API pubblica subito.
+  publish-due CODA.csv [...] [--log FILE] [--max N] [--dry-run]
+                                 pubblica i pin con "Publish date" (UTC) gia'
+                                 arrivata e non ancora nel log (pubblicati.csv);
+                                 max N per giro (default 2). Per la GitHub Action.
   auth-url                       link di autorizzazione OAuth da aprire
   exchange CODE                  scambia il code del callback con i token
   refresh                        rinnova il token produzione
@@ -30,6 +34,8 @@ Esempio collaudo:  python tools/pinterest_api.py --sandbox create-board "Sandbox
                    python tools/pinterest_api.py --sandbox pin-csv csv/pin-nuovi-9.csv --only 1 --board-id ID
 """
 import argparse
+import datetime
+import glob
 import getpass
 import time
 import webbrowser
@@ -167,6 +173,50 @@ def all_boards(base, token):
             return out
 
 
+LOG_FIELDS = ["published_at_utc", "pin_id", "Media URL", "Publish date", "Title", "Link"]
+
+
+def pin_body(r, board_id):
+    return {"board_id": board_id, "title": r["Title"][:100], "description": r["Description"][:800],
+            "link": r["Link"], "alt_text": r["Title"][:500],
+            "media_source": {"source_type": "image_url", "url": r["Media URL"]}}
+
+
+def publish_due(base, token, patterns, log_path, max_n, dry_run):
+    # Chiave anti-doppione: immagine + data prevista. Il log e' la verita' su cosa e' gia' uscito.
+    done = set()
+    if os.path.exists(log_path):
+        done = {(r["Media URL"], r["Publish date"]) for r in csv.DictReader(open(log_path, encoding="utf-8"))}
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    rows = []
+    for path in sorted({p for pat in patterns for p in glob.glob(pat)}):
+        rows += list(csv.DictReader(open(path, encoding="utf-8")))
+    due = sorted((r for r in rows if r["Publish date"]
+                  and datetime.datetime.fromisoformat(r["Publish date"]) <= now
+                  and (r["Media URL"], r["Publish date"]) not in done), key=lambda r: r["Publish date"])
+    print(f"In coda: {len(rows)}, da pubblicare ora: {len(due)}, in questo giro: {min(len(due), max_n)}")
+    if not due:
+        return
+    boards = {b["name"]: b["id"] for b in all_boards(base, token)}
+    new_log = not os.path.exists(log_path)
+    for r in due[:max_n]:
+        name = r["Pinterest board"]
+        if name not in boards:
+            sys.exit(f"Bacheca inesistente: {name} (creala a mano, niente bacheche create in automatico)")
+        if dry_run:
+            print(f"DRY {r['Publish date']} {r['Title']} -> {name}")
+            continue
+        pin = call(base, token, "POST", "/pins", pin_body(r, boards[name]))
+        with open(log_path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=LOG_FIELDS)
+            if new_log:
+                w.writeheader()
+                new_log = False
+            w.writerow({"published_at_utc": now.strftime("%Y-%m-%dT%H:%M:%S"), "pin_id": pin.get("id"),
+                        **{k: r[k] for k in LOG_FIELDS[2:]}})
+        print(f"Pin pubblicato {pin.get('id')}: {r['Title']}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--sandbox", action="store_true", help="usa api-sandbox e PINTEREST_SANDBOX_TOKEN")
@@ -176,6 +226,9 @@ def main():
     p.add_argument("--only", type=int, help="crea solo i primi N pin")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--board-id", help="usa questa bacheca per tutti i pin")
+    p.add_argument("files", nargs="*", help="altri CSV per publish-due")
+    p.add_argument("--log", default="pubblicati.csv")
+    p.add_argument("--max", type=int, default=2)
     a = p.parse_args()
 
     if a.cmd == "demo":
@@ -221,6 +274,8 @@ def main():
     elif a.cmd == "create-board":
         b = call(base, token, "POST", "/boards", {"name": a.arg, "privacy": "PUBLIC"})
         print(f"Creata: {b['id']}\t{b['name']}")
+    elif a.cmd == "publish-due":
+        publish_due(base, token, [a.arg] + a.files, a.log, a.max, a.dry_run)
     elif a.cmd == "pin-csv":
         rows = list(csv.DictReader(open(a.arg, encoding="utf-8")))[: a.only or None]
         boards = {} if a.board_id else {b["name"]: b["id"] for b in all_boards(base, token)}

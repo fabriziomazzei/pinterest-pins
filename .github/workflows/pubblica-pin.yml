@@ -1,0 +1,59 @@
+# Pubblica ogni giorno i pin di coda/*.csv con "Publish date" arrivata.
+# Segreti del repo: PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN,
+# GH_SECRETS_PAT (token GitHub fine-grained con Secrets: read and write su questo repo).
+# Pinterest cambia il refresh token a ogni rinnovo (scade dopo 60 giorni se non usato):
+# il workflow salva subito quello nuovo nel segreto, prima di pubblicare.
+name: Pubblica pin
+
+on:
+  schedule:
+    - cron: "5 14 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Solo prova, non pubblica"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pubblica-pin
+  cancel-in-progress: false
+
+jobs:
+  pubblica:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rinnova token Pinterest
+        env:
+          PINTEREST_APP_ID: ${{ secrets.PINTEREST_APP_ID }}
+          PINTEREST_APP_SECRET: ${{ secrets.PINTEREST_APP_SECRET }}
+          PINTEREST_REFRESH_TOKEN: ${{ secrets.PINTEREST_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+        run: |
+          python tools/pinterest_api.py refresh --token-file "$RUNNER_TEMP/tok.json"
+          RT=$(jq -r '.refresh_token // empty' "$RUNNER_TEMP/tok.json")
+          [ -n "$RT" ] || { echo "Pinterest non ha restituito un refresh token"; exit 1; }
+          echo "::add-mask::$RT"
+          echo "::add-mask::$(jq -r .access_token "$RUNNER_TEMP/tok.json")"
+          printf '%s' "$RT" | gh secret set PINTEREST_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
+
+      - name: Pubblica i pin in scadenza
+        run: |
+          python tools/pinterest_api.py --token-file "$RUNNER_TEMP/tok.json" publish-due "coda/*.csv" \
+            --log pubblicati.csv --max 2 ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Salva il registro
+        run: |
+          rm -f "$RUNNER_TEMP/tok.json"
+          if [ -n "$(git status --porcelain pubblicati.csv)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+            git add pubblicati.csv
+            git commit -m "Registro pin pubblicati"
+            git push
+          fi
