@@ -195,9 +195,15 @@ def publish_due(base, token, patterns, log_path, max_n, dry_run):
                   and datetime.datetime.fromisoformat(r["Publish date"]) <= now
                   and (r["Media URL"], r["Publish date"]) not in done), key=lambda r: r["Publish date"])
     print(f"In coda: {len(rows)}, da pubblicare ora: {len(due)}, in questo giro: {min(len(due), max_n)}")
-    if not due:
-        return
+    # Controllo bacheche su tutta la coda futura, cosi' la prova a vuoto segnala subito quelle mancanti.
     boards = {b["name"]: b["id"] for b in all_boards(base, token)}
+    pending = {r["Pinterest board"] for r in rows if (r["Media URL"], r["Publish date"]) not in done}
+    missing = sorted(pending - set(boards))
+    print("Bacheche della coda: " + ", ".join(f"{n} {'OK' if n in boards else 'MANCA'}" for n in sorted(pending)))
+    if not due:
+        if missing:
+            sys.exit(f"Bacheche da creare sul profilo: {', '.join(missing)}")
+        return
     new_log = not os.path.exists(log_path)
     for r in due[:max_n]:
         name = r["Pinterest board"]
