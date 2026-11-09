@@ -1,4 +1,4 @@
-# Pubblica ogni giorno i pin di coda/*.csv con "Publish date" arrivata.
+# Pubblica ogni giorno i pin (a ogni push del codice: solo prova a vuoto) di coda/*.csv con "Publish date" arrivata.
 # Segreti del repo: PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN,
 # GH_SECRETS_PAT (token GitHub fine-grained con Secrets: read and write su questo repo).
 # Pinterest cambia il refresh token a ogni rinnovo (scade dopo 60 giorni se non usato):
@@ -8,6 +8,9 @@ name: Pubblica pin
 on:
   schedule:
     - cron: "5 14 * * *"
+  push:
+    branches: [main]
+    paths: [".github/workflows/pubblica-pin.yml", "tools/pinterest_api.py"]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -45,7 +48,7 @@ jobs:
       - name: Pubblica i pin in scadenza
         run: |
           python tools/pinterest_api.py --token-file "$RUNNER_TEMP/tok.json" publish-due "coda/*.csv" \
-            --log pubblicati.csv --max 2 ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+            --log pubblicati.csv --max 2 ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && '--dry-run' || '' }}
 
       - name: Salva il registro
         run: |
