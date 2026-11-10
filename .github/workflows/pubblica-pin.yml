@@ -7,7 +7,7 @@ name: Pubblica pin
 
 on:
   schedule:
-    - cron: "5 14 * * *"
+    - cron: "23 13 * * *"
   push:
     branches: [main]
     paths: [".github/workflows/pubblica-pin.yml", "tools/pinterest_api.py", "coda/**"]
