@@ -1,4 +1,7 @@
-# Pubblica ogni giorno i pin (a ogni push del codice: solo prova a vuoto) di coda/*.csv con "Publish date" arrivata.
+# Pubblica i pin di coda/*.csv con "Publish date" arrivata.
+# Avvio reale: un push che cambia tick.txt (lo fa ogni giorno una routine, perche' il cron
+# di GitHub su questo repo non e' mai partito), oppure il cron, oppure Run workflow a mano.
+# Ogni altro push (codice o coda): solo prova a vuoto.
 # Segreti del repo: PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN,
 # GH_SECRETS_PAT (token GitHub fine-grained con Secrets: read and write su questo repo).
 # Pinterest cambia il refresh token a ogni rinnovo (scade dopo 60 giorni se non usato):
@@ -10,7 +13,7 @@ on:
     - cron: "23 13 * * *"
   push:
     branches: [main]
-    paths: [".github/workflows/pubblica-pin.yml", "tools/pinterest_api.py", "coda/**"]
+    paths: [".github/workflows/pubblica-pin.yml", "tools/pinterest_api.py", "coda/**", "tick.txt"]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -30,6 +33,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prova a vuoto o pubblicazione vera?
+        id: mode
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          DRY=""
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            if git diff --name-only "$BEFORE" "$GITHUB_SHA" 2>/dev/null | grep -qx tick.txt; then DRY=""; else DRY="--dry-run"; fi
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then DRY="--dry-run"; fi
+          echo "dry=$DRY" >> "$GITHUB_OUTPUT"
+          echo "Modalita': ${DRY:-PUBBLICAZIONE VERA}"
 
       - name: Rinnova token Pinterest
         env:
@@ -48,7 +66,7 @@ jobs:
       - name: Pubblica i pin in scadenza
         run: |
           python tools/pinterest_api.py --token-file "$RUNNER_TEMP/tok.json" publish-due "coda/*.csv" \
-            --log pubblicati.csv --max 2 ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && '--dry-run' || '' }}
+            --log pubblicati.csv --max 2 ${{ steps.mode.outputs.dry }}
 
       - name: Salva il registro
         run: |
